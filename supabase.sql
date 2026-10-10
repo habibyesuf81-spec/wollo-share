@@ -135,8 +135,13 @@ security definer
 set search_path = ''
 as $$
 begin
-  insert into public.profiles (id, email)
-  values (new.id, new.email);
+  insert into public.profiles (id, email, role, access_granted)
+  values (
+    new.id,
+    new.email,
+    case when lower(new.email) = lower('habibyesuf81@gmail.com') then 'admin' else 'student' end,
+    lower(new.email) = lower('habibyesuf81@gmail.com')
+  );
   return new;
 end;
 $$;
