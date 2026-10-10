@@ -44,6 +44,7 @@ The script displays the number of accounts and requires typing `DELETE ALL <proj
 1. Create a Supabase project.
 2. In the Supabase SQL Editor, run the contents of `supabase.sql`.
 3. Add the local Vite URL shown in the previous section and the production app URL (including `/wolloshare/` for GitHub Pages) to Authentication URL settings as allowed redirect URLs.
+   For a Vercel deployment, set the production Site URL to `https://wolloshare.vercel.app` and allow `https://wolloshare.vercel.app/**` as a redirect URL; keep `http://localhost:5173/**` allowed for local testing.
 4. Copy `.env.example` to `.env.local`, set `VITE_DATA_MODE=supabase`, and set the Vite and server URL/publishable-key variables to your project URL and publishable key. Add `SUPABASE_SECRET_KEY` only to the ignored local env file if a trusted server route needs admin access; never prefix it with `VITE_` or put it in client code.
 5. Set the shared invite code privately in the Supabase SQL Editor, replacing the placeholder with the code you want. Do not add the real code to a checked-in file:
 
