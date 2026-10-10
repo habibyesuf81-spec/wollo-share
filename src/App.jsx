@@ -13,18 +13,6 @@ const filters = [
   { id: "material", label: "Materials" }
 ];
 
-function getRateLimitSeconds(message) {
-  const match = message.match(/only request this after (\d+) seconds?/i);
-  return match ? Number(match[1]) : 0;
-}
-
-function getEmailRedirectUrl(email) {
-  const redirectUrl = new URL(import.meta.env.BASE_URL, window.location.origin);
-  redirectUrl.searchParams.set("verify", "1");
-  redirectUrl.searchParams.set("email", email);
-  return redirectUrl.href;
-}
-
 function getPasswordRecoveryUrl() {
   const redirectUrl = new URL(import.meta.env.BASE_URL, window.location.origin);
   redirectUrl.searchParams.set("auth", "reset");
@@ -45,16 +33,10 @@ export default function App() {
     new URLSearchParams(window.location.search).get("auth") === "reset"
   ));
   const [authBusy, setAuthBusy] = useState(false);
-  const [resendBusy, setResendBusy] = useState(false);
-  const [resendCooldown, setResendCooldown] = useState(0);
   const [authEmail, setAuthEmail] = useState(() => (
     new URLSearchParams(window.location.search).get("email") || ""
   ));
-  const [emailOtp, setEmailOtp] = useState("");
   const [inviteCode, setInviteCode] = useState("");
-  const [verificationStage, setVerificationStage] = useState(() => (
-    new URLSearchParams(window.location.search).get("verify") === "1" ? "email" : null
-  ));
   const [authMessage, setAuthMessage] = useState("");
   const [authError, setAuthError] = useState(false);
   const [appMessage, setAppMessage] = useState("");
@@ -157,14 +139,6 @@ export default function App() {
   useEffect(() => {
     if (!isAdmin && currentView === "admin") setCurrentView("library");
   }, [isAdmin, currentView]);
-
-  useEffect(() => {
-    if (resendCooldown === 0) return undefined;
-    const timeout = window.setTimeout(() => {
-      setResendCooldown((seconds) => Math.max(0, seconds - 1));
-    }, 1000);
-    return () => window.clearTimeout(timeout);
-  }, [resendCooldown]);
 
   function applySession(nextSession) {
     setSession(nextSession);
@@ -407,18 +381,12 @@ export default function App() {
       }
 
       if (authMode === "signup") {
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: { emailRedirectTo: getEmailRedirectUrl(email) }
-        });
+        const { data, error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
         if (data.session) {
           applySession(data.session);
-          setVerificationStage("invite");
         } else {
-          setVerificationStage("email");
-          setAuthMessage(`A unique confirmation code was sent to ${email}. Open the link in the email to return here, then enter that code.`);
+          setAuthMessage(`Your account was created. Sign in to enter the administrator access code. If Supabase asks for email confirmation, ask the project administrator to turn off Confirm email.`);
         }
       } else {
         const { data, error } = await supabase.auth.signInWithPassword({ email, password });
@@ -428,40 +396,10 @@ export default function App() {
       }
     } catch (error) {
       const message = error.message || "Unable to sign in. Try again.";
-      setResendCooldown(getRateLimitSeconds(message));
       setAuthError(true);
       setAuthMessage(/email not confirmed/i.test(message)
-        ? "Email not confirmed. Use the resend option below, then check your inbox and spam folder."
+        ? "This account still needs email confirmation in Supabase. Ask the project administrator to disable email confirmation to use admin-code-only signup."
         : message);
-    } finally {
-      setAuthBusy(false);
-    }
-  }
-
-  async function handleEmailOtpSubmit(event) {
-    event.preventDefault();
-    if (!supabase) return;
-
-    setAuthBusy(true);
-    setAuthMessage("");
-    setAuthError(false);
-    try {
-      const { data, error } = await supabase.auth.verifyOtp({
-        email: authEmail.trim(),
-        token: emailOtp.trim(),
-        type: "signup"
-      });
-      if (error) throw error;
-      if (!data.session) throw new Error("Email confirmation succeeded, but no sign-in session was created. Try signing in.");
-      applySession(data.session);
-      setEmailOtp("");
-      setVerificationStage("invite");
-      setAuthMessage("Email verified. Enter the shared invite code to continue.");
-    } catch (error) {
-      const message = error.message || "Could not verify your email code.";
-      setResendCooldown(getRateLimitSeconds(message));
-      setAuthError(true);
-      setAuthMessage(message);
     } finally {
       setAuthBusy(false);
     }
@@ -562,7 +500,6 @@ export default function App() {
 
       setProfile((current) => current ? { ...current, invite_code_verified: true } : current);
       setInviteCode("");
-      setVerificationStage(null);
       setAuthMessage("");
       const libraryUrl = new URL(import.meta.env.BASE_URL, window.location.origin);
       window.history.replaceState({}, "", libraryUrl.href);
@@ -572,36 +509,6 @@ export default function App() {
       setAuthMessage(error.message || "Could not verify the invite code.");
     } finally {
       setAuthBusy(false);
-    }
-  }
-
-  async function handleResendConfirmation() {
-    if (!supabase) return;
-    const email = authEmail.trim();
-    if (!email) {
-      setAuthError(true);
-      setAuthMessage("Enter your email address first.");
-      return;
-    }
-
-    setResendBusy(true);
-    setAuthMessage("");
-    setAuthError(false);
-    try {
-      const { error } = await supabase.auth.resend({
-        type: "signup",
-        email,
-        options: { emailRedirectTo: getEmailRedirectUrl(email) }
-      });
-      if (error) throw error;
-      setAuthMessage("If this account needs confirmation, Supabase sent a new email. Check your inbox and spam folder.");
-    } catch (error) {
-      const message = error.message || "Could not resend the confirmation email. Try again shortly.";
-      setResendCooldown(getRateLimitSeconds(message));
-      setAuthError(true);
-      setAuthMessage(message);
-    } finally {
-      setResendBusy(false);
     }
   }
 
@@ -823,7 +730,7 @@ export default function App() {
             <div className="login-kicker">Evangadi Resources</div>
             <h1>Choose a new password.</h1>
             <p>Enter a new password for your account to finish resetting it.</p>
-            <div className="login-course-count"><strong>48</strong><span>courses, in your order</span></div>
+            <div className="login-course-count"><strong>{videos.length}</strong><span>courses, in your order</span></div>
           </section>
           <section className="login-card" aria-labelledby="password-reset-title">
             <div className="resource-kind"><span className="kind-dot" aria-hidden="true" />Account recovery</div>
@@ -843,51 +750,33 @@ export default function App() {
     );
   }
 
-  if (verificationStage || needsInviteVerification) {
-    const verifyEmail = verificationStage === "email" && !session;
+  if (needsInviteVerification) {
     return (
       <main className="login-page">
         <div className="login-topline">
           <div className="brand"><span className="brand-mark" aria-hidden="true" />Evangadi Learning</div>
           {session
             ? <button className="text-button" type="button" onClick={handleSignOut}>Sign out</button>
-            : <button className="text-button" type="button" onClick={() => {
-              setVerificationStage(null);
+            :             <button className="text-button" type="button" onClick={() => {
               setShowAuthPanel(true);
             }}>Back to sign in</button>}
         </div>
         <div className="login-layout">
           <section className="login-intro">
             <div className="login-kicker">Evangadi Resources</div>
-            <h1>{verifyEmail ? "Verify your email." : "One last step."}</h1>
-            <p>{verifyEmail
-              ? "Open the confirmation email, then enter its unique code here."
-              : "Enter the shared invite code to finish setting up your account."}</p>
-            <div className="login-course-count"><strong>48</strong><span>courses, in your order</span></div>
+            <h1>Access for learners.</h1>
+            <p>Enter the access code provided by the administrator to finish setting up your account.</p>
+            <div className="login-course-count"><strong>{videos.length}</strong><span>courses, in your order</span></div>
           </section>
           <section className="login-card" aria-labelledby="verification-title">
-            <div className="resource-kind"><span className="kind-dot" aria-hidden="true" />Account verification</div>
-            <h2 id="verification-title">{verifyEmail ? "Confirm your email" : "Enter invite code"}</h2>
-            <p className="auth-copy">{verifyEmail
-              ? `Enter the one-time code sent to ${authEmail || "your email address"}.`
-              : `Email confirmed for ${session?.user?.email || authEmail}. Enter the invite code to continue.`}</p>
-            <form className="auth-form" onSubmit={verifyEmail ? handleEmailOtpSubmit : handleInviteCodeSubmit}>
-              {verifyEmail ? (
-                <>
-                  <label>Email address<input name="verification-email" type="email" autoComplete="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} required /></label>
-                  <label>Email confirmation code<input name="email-code" type="text" inputMode="numeric" autoComplete="one-time-code" value={emailOtp} onChange={(event) => setEmailOtp(event.target.value)} maxLength="12" required /></label>
-                </>
-              ) : (
-                <label>Invite code<input name="invite-code" type="password" autoComplete="one-time-code" value={inviteCode} onChange={(event) => setInviteCode(event.target.value)} required /></label>
-              )}
+            <div className="resource-kind"><span className="kind-dot" aria-hidden="true" />Administrator access</div>
+            <h2 id="verification-title">Enter your access code</h2>
+            <p className="auth-copy">Signed in as {session?.user?.email}. Enter the code provided by the administrator.</p>
+            <form className="auth-form" onSubmit={handleInviteCodeSubmit}>
+              <label>Administrator access code<input name="invite-code" type="password" autoComplete="one-time-code" value={inviteCode} onChange={(event) => setInviteCode(event.target.value)} required /></label>
               <button className="primary-button login-submit" type="submit" disabled={authBusy}>
-                {authBusy ? "Please wait..." : verifyEmail ? "Verify email" : "Verify invite code"}
+                {authBusy ? "Please wait..." : "Continue to resources"}
               </button>
-              {verifyEmail && (
-                <button className="text-button resend-button" type="button" onClick={handleResendConfirmation} disabled={resendBusy || authBusy || resendCooldown > 0}>
-                  {resendBusy ? "Sending..." : resendCooldown > 0 ? `Resend in ${resendCooldown}s` : "Resend confirmation code"}
-                </button>
-              )}
               {authMessage && <p className={`message ${authError ? "error" : ""}`} role="status">{authMessage}</p>}
             </form>
           </section>
@@ -901,14 +790,20 @@ export default function App() {
       <main className="login-page">
         <div className="login-topline">
           <div className="brand"><span className="brand-mark" aria-hidden="true" />Evangadi Learning</div>
-          <button className="text-button" type="button" onClick={() => setShowAuthPanel(false)}>Back to courses</button>
+          <button className="text-button" type="button" onClick={() => {
+            setShowAuthPanel(false);
+            const libraryUrl = new URL(import.meta.env.BASE_URL, window.location.origin);
+            window.history.replaceState({}, "", libraryUrl.href);
+          }}>Browse courses</button>
         </div>
         <div className="login-layout">
           <section className="login-intro">
             <div className="login-kicker">Evangadi Resources</div>
             <h1>{authMode === "signup" ? "Start learning." : "Welcome back."}</h1>
-            <p>{authMode === "signup" ? "Create an account to save course progress and pick up where you left off." : "Sign in to continue your courses and keep your progress in sync."}</p>
-            <div className="login-course-count"><strong>48</strong><span>courses, in your order</span></div>
+            <p>{authMode === "signup"
+              ? "Create your account, then use the access code shared by the administrator to join the learning community."
+              : "Sign in to continue your courses and keep your progress in sync."}</p>
+            <div className="login-course-count"><strong>{videos.length}</strong><span>courses, in your order</span></div>
           </section>
           <section className="login-card" aria-labelledby="auth-title">
             <div className="resource-kind"><span className="kind-dot" aria-hidden="true" />Learner account</div>
@@ -919,7 +814,7 @@ export default function App() {
                   ? `Your account is stored only in this browser. ${ADMIN_EMAIL} is the only local admin; other accounts are learners.`
                   : "Sign in to the account stored in this browser."
                 : authMode === "signup"
-                  ? "Any valid email can register. Confirm it with the unique code sent to your inbox, then enter the shared invite code."
+                  ? "Create your learner account, then enter the administrator-provided access code to continue."
                   : "Enter your email and password to continue."}
             </p>
             <form className="auth-form" onSubmit={handleAuthSubmit}>
@@ -941,11 +836,6 @@ export default function App() {
                 }}>
                   {authMode === "signup" ? "Back to sign in" : "Create account"}
                 </button>
-                {supabase && (
-                  <button className="text-button resend-button" type="button" onClick={handleResendConfirmation} disabled={resendBusy || authBusy || resendCooldown > 0}>
-                    {resendBusy ? "Sending..." : resendCooldown > 0 ? `Resend in ${resendCooldown}s` : "Resend confirmation"}
-                  </button>
-                )}
               </div>
               {authMessage && <p className={`message ${authError ? "error" : ""}`} role="status">{authMessage}</p>}
             </form>
