@@ -7,9 +7,11 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks(id) {
-          if (id.includes("/node_modules/@supabase/")) return "supabase";
-        }
+        ...(process.env.VITE_DATA_MODE === "supabase" && {
+          manualChunks(id) {
+            if (id.includes("/node_modules/@supabase/")) return "supabase";
+          }
+        })
       }
     }
   },
