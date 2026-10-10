@@ -43,12 +43,12 @@ The script displays the number of accounts and requires typing `DELETE ALL <proj
 
 1. Create a Supabase project.
 2. In the Supabase SQL Editor, run the contents of `supabase.sql`.
-3. Add the local Vite URL shown in the previous section to Authentication URL settings as the Site URL and an allowed redirect URL.
+3. Add the local Vite URL shown in the previous section and the production app URL (including `/wolloshare/` for GitHub Pages) to Authentication URL settings as allowed redirect URLs. Email confirmation returns to the app URL for the current environment.
 4. Copy `.env.example` to `.env.local`, set `VITE_DATA_MODE=supabase`, and set the Vite and server URL/publishable-key variables to your project URL and publishable key. Add `SUPABASE_SECRET_KEY` only to the ignored local env file if a trusted server route needs admin access; never prefix it with `VITE_` or put it in client code.
-5. Restart the Vite server, create your account, and confirm your email if prompted.
+5. Restart the Vite server, create your account, and open the confirmation link in your email. The confirmation redirects to the app and signs the user in automatically; they do not need to enter their password again.
 6. The final statements in `supabase.sql` backfill profiles for existing auth users and promote `habibyesuf81@gmail.com` to admin. If that is not the account you want as admin, change the email in those statements before running the SQL. Sign out and back in to load the dashboard.
 
-New accounts start pending. Admins can grant or revoke access from the admin user table; admins always retain access. Pending users can still browse the public course catalog but cannot track progress until approved. The database enforces these checks with row-level security, and only admins can change a learner’s access flag.
+New accounts start pending, except the configured admin account. After confirming their email, pending users are signed in and can browse the public course catalog; progress tracking remains locked until an admin grants access. Admins can grant or revoke access from the admin user table and always retain access. The database enforces these checks with row-level security, and only admins can change a learner’s access flag.
 
 The admin dashboard also lists completed-video counts, last-active timestamps, and the latest 50 sign-in, resource-open, and completion events. Learners can only read and change their own progress and insert activity for themselves; only admins can read everyone’s activity. Re-run the latest `supabase.sql` whenever its schema changes so the approval column, activity table, and row-level security policies exist.
 

@@ -18,6 +18,10 @@ function getRateLimitSeconds(message) {
   return match ? Number(match[1]) : 0;
 }
 
+function getEmailRedirectUrl() {
+  return new URL(import.meta.env.BASE_URL, window.location.origin).href;
+}
+
 export default function App() {
   const [session, setSession] = useState(null);
   const [sessionLoading, setSessionLoading] = useState(true);
@@ -382,14 +386,14 @@ export default function App() {
         const { data, error } = await supabase.auth.signUp({
           email,
           password,
-          options: { emailRedirectTo: window.location.origin }
+          options: { emailRedirectTo: getEmailRedirectUrl() }
         });
         if (error) throw error;
         if (data.session) {
           applySession(data.session);
           void recordActivity("sign_in", null, data.session.user.id);
         } else {
-          setAuthMessage("Account created. Check your email to confirm it, then sign in.");
+          setAuthMessage("Confirmation email sent. Open its link to return here and sign in automatically. You can browse while your account is awaiting admin approval.");
         }
       } else {
         const { data, error } = await supabase.auth.signInWithPassword({ email, password });
@@ -425,7 +429,7 @@ export default function App() {
       const { error } = await supabase.auth.resend({
         type: "signup",
         email,
-        options: { emailRedirectTo: window.location.origin }
+        options: { emailRedirectTo: getEmailRedirectUrl() }
       });
       if (error) throw error;
       setAuthMessage("If this account needs confirmation, Supabase sent a new email. Check your inbox and spam folder.");
