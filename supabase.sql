@@ -7,6 +7,7 @@ create table if not exists public.profiles (
 );
 
 alter table public.profiles add column if not exists access_granted boolean not null default false;
+alter table public.profiles add column if not exists invite_code_verified boolean not null default false;
 
 create table if not exists public.video_progress (
   user_id uuid not null references public.profiles (id) on delete cascade,
@@ -47,6 +48,7 @@ as $$
     from public.profiles
     where id = (select auth.uid())
       and role = 'admin'
+      and invite_code_verified = true
   );
 $$;
 
@@ -65,11 +67,116 @@ as $$
     from public.profiles
     where id = (select auth.uid())
       and access_granted = true
+      and invite_code_verified = true
   );
 $$;
 
 revoke all on function public.has_app_access() from public, anon;
 grant execute on function public.has_app_access() to authenticated;
+
+create schema if not exists private;
+revoke all on schema private from public, anon, authenticated;
+
+create table if not exists private.app_invite_config (
+  singleton boolean primary key default true check (singleton),
+  invite_code text not null
+);
+
+create table if not exists private.app_invite_attempts (
+  user_id uuid primary key references auth.users (id) on delete cascade,
+  window_started_at timestamptz not null default now(),
+  attempt_count integer not null default 0
+);
+
+revoke all on table private.app_invite_config from public, anon, authenticated;
+revoke all on table private.app_invite_attempts from public, anon, authenticated;
+
+create or replace function public.verify_invite_code(submitted_code text)
+returns boolean
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  current_user_id uuid := (select auth.uid());
+  account_is_verified boolean;
+  expected_code text;
+  attempts integer;
+  window_started timestamptz;
+begin
+  if current_user_id is null then
+    raise exception 'Sign in and confirm your email before entering the invite code.';
+  end if;
+
+  select email_confirmed_at is not null
+  into account_is_verified
+  from auth.users
+  where id = current_user_id;
+
+  if account_is_verified is distinct from true then
+    raise exception 'Confirm your email before entering the invite code.';
+  end if;
+
+  select invite_code into expected_code
+  from private.app_invite_config
+  where singleton = true;
+
+  if expected_code is null then
+    raise exception 'Invite code verification is not configured.';
+  end if;
+
+  if submitted_code is null or length(submitted_code) > 128 then
+    return false;
+  end if;
+
+  if exists (
+    select 1 from public.profiles
+    where id = current_user_id and invite_code_verified = true
+  ) then
+    return true;
+  end if;
+
+  insert into private.app_invite_attempts (user_id)
+  values (current_user_id)
+  on conflict (user_id) do nothing;
+
+  select attempt_count, window_started_at
+  into attempts, window_started
+  from private.app_invite_attempts
+  where user_id = current_user_id
+  for update;
+
+  if window_started <= now() - interval '15 minutes' then
+    update private.app_invite_attempts
+    set window_started_at = now(), attempt_count = 0
+    where user_id = current_user_id
+    returning attempt_count into attempts;
+  end if;
+
+  if attempts >= 5 then
+    raise exception 'Too many incorrect invite code attempts. Try again in 15 minutes.';
+  end if;
+
+  if submitted_code is distinct from expected_code then
+    update private.app_invite_attempts
+    set attempt_count = attempt_count + 1
+    where user_id = current_user_id;
+    return false;
+  end if;
+
+  update public.profiles
+  set invite_code_verified = true
+  where id = current_user_id;
+
+  delete from private.app_invite_attempts
+  where user_id = current_user_id;
+
+  return true;
+end;
+$$;
+
+revoke all on function public.verify_invite_code(text) from public, anon;
+grant execute on function public.verify_invite_code(text) to authenticated;
 
 drop policy if exists "Profiles visible to owner and admins" on public.profiles;
 create policy "Profiles visible to owner and admins"
@@ -135,12 +242,13 @@ security definer
 set search_path = ''
 as $$
 begin
-  insert into public.profiles (id, email, role, access_granted)
+  insert into public.profiles (id, email, role, access_granted, invite_code_verified)
   values (
     new.id,
     new.email,
     case when lower(new.email) = lower('habibyesuf81@gmail.com') then 'admin' else 'student' end,
-    lower(new.email) = lower('habibyesuf81@gmail.com')
+    lower(new.email) = lower('habibyesuf81@gmail.com'),
+    false
   );
   return new;
 end;

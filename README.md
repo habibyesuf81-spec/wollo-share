@@ -43,12 +43,29 @@ The script displays the number of accounts and requires typing `DELETE ALL <proj
 
 1. Create a Supabase project.
 2. In the Supabase SQL Editor, run the contents of `supabase.sql`.
-3. Add the local Vite URL shown in the previous section and the production app URL (including `/wolloshare/` for GitHub Pages) to Authentication URL settings as allowed redirect URLs. Email confirmation returns to the app URL for the current environment.
+3. Add the local Vite URL shown in the previous section and the production app URL (including `/wolloshare/` for GitHub Pages) to Authentication URL settings as allowed redirect URLs.
 4. Copy `.env.example` to `.env.local`, set `VITE_DATA_MODE=supabase`, and set the Vite and server URL/publishable-key variables to your project URL and publishable key. Add `SUPABASE_SECRET_KEY` only to the ignored local env file if a trusted server route needs admin access; never prefix it with `VITE_` or put it in client code.
-5. Restart the Vite server, create your account, and open the confirmation link in your email. The confirmation redirects to the app and signs the user in automatically; they do not need to enter their password again.
-6. The final statements in `supabase.sql` backfill profiles for existing auth users and promote `habibyesuf81@gmail.com` to admin. If that is not the account you want as admin, change the email in those statements before running the SQL. Sign out and back in to load the dashboard.
+5. Set the shared invite code privately in the Supabase SQL Editor, replacing the placeholder with the code you want. Do not add the real code to a checked-in file:
 
-New accounts start pending, except the configured admin account. After confirming their email, pending users are signed in and can browse the public course catalog; progress tracking remains locked until an admin grants access. Admins can grant or revoke access from the admin user table and always retain access. The database enforces these checks with row-level security, and only admins can change a learner’s access flag.
+   ```sql
+   insert into private.app_invite_config (singleton, invite_code)
+   values (true, '<your shared invite code>')
+   on conflict (singleton) do update set invite_code = excluded.invite_code;
+   ```
+
+6. Configure a custom SMTP provider under **Authentication → SMTP Settings**. Supabase's built-in mailer is rate-limited and is not intended for unrestricted delivery. Then, under **Authentication → Email Templates → Confirm signup**, use a template that includes the OTP and links back to the app's verification page. For example:
+
+   ```html
+   <h2>Confirm your email</h2>
+   <p>Your one-time code is: <strong>{{ .Token }}</strong></p>
+   <p><a href="{{ .RedirectTo }}">Open the email verification page</a></p>
+   ```
+
+   Set the subject to something like **Your Evangadi verification code**. The app supplies a redirect URL ending in `?verify=1&email=...`; `{{ .RedirectTo }}` uses that URL, while `{{ .Token }}` supplies the code. The dashboard may require SMTP before enabling template edits.
+7. Restart the Vite server and create an account with any valid email. Enter the unique code from the confirmation email, then enter the shared invite code to finish registration. Supabase/provider-level email sending quotas may still apply.
+8. The final statements in `supabase.sql` backfill profiles for existing auth users and promote `habibyesuf81@gmail.com` to admin. If that is not the account you want as admin, change the email in those statements before running the SQL. The admin must also complete email and invite verification before the admin panel is available.
+
+New accounts can use any valid email and must complete both verification steps. Other users can browse the public course catalog after verification; progress tracking remains locked until the admin grants access. Admins can grant or revoke access from the admin user table and always retain access. The database enforces these checks with row-level security, and only verified admins can change a learner's access flag. Invite attempts are limited to five per account per 15 minutes.
 
 The admin dashboard also lists completed-video counts, last-active timestamps, and the latest 50 sign-in, resource-open, and completion events. Learners can only read and change their own progress and insert activity for themselves; only admins can read everyone’s activity. Re-run the latest `supabase.sql` whenever its schema changes so the approval column, activity table, and row-level security policies exist.
 
@@ -56,7 +73,7 @@ The admin dashboard also lists completed-video counts, last-active timestamps, a
 
 The repository includes a GitHub Actions workflow that builds and publishes the site to GitHub Pages when changes are pushed to `main`.
 
-1. Create a Supabase project and run the current `supabase.sql` in its SQL Editor.
+1. Create a Supabase project and run the current `supabase.sql` in its SQL Editor, then complete the invite-code and email-template setup in the Supabase section above.
 2. In the GitHub repository, add the Actions secrets `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` from the Supabase project. These are public browser configuration values; never add the Supabase secret key to GitHub Actions or client-side variables.
 3. In **Settings → Pages**, select **GitHub Actions** as the build and deployment source.
 4. In Supabase Authentication URL settings, set the production Site URL and add `https://habibyesuf81-spec.github.io/wolloshare/` as an allowed redirect URL. Also allow your local development URL if needed.
