@@ -58,13 +58,15 @@ The script displays the number of accounts and requires typing `DELETE ALL <proj
 
    ```html
    <h2>Confirm your email</h2>
-   <p>Your one-time code is: <strong>{{ .Token }}</strong></p>
-   <p><a href="{{ .RedirectTo }}">Open the email verification page</a></p>
+   <p>Your email verification code is: <strong>{{ .Token }}</strong></p>
+   <p><a href="{{ .RedirectTo }}">Open the verification page to enter your code</a></p>
+   <p>After verification, <a href="https://wolloshare.vercel.app/?auth=signin">go to the sign-in page</a>.</p>
    ```
 
-   Set the subject to something like **Your Evangadi verification code**. The app supplies a redirect URL ending in `?verify=1&email=...`; `{{ .RedirectTo }}` uses that URL, while `{{ .Token }}` supplies the code. The dashboard may require SMTP before enabling template edits.
-7. Restart the Vite server and create an account with any valid email. Enter the unique code from the confirmation email, then enter the shared invite code to finish registration. Supabase/provider-level email sending quotas may still apply.
-8. The final statements in `supabase.sql` backfill profiles for existing auth users and promote `habibyesuf81@gmail.com` to admin. If that is not the account you want as admin, change the email in those statements before running the SQL. The admin must also complete email and invite verification before the admin panel is available.
+   Set the subject to something like **Your Evangadi verification code**. The app supplies a redirect URL ending in `?verify=1&email=...`; `{{ .RedirectTo }}` uses that URL, while `{{ .Token }}` supplies a unique, single-use code for that signup. The sign-in link opens the production login form. The dashboard may require SMTP before enabling template edits.
+7. Under **Authentication → Email Templates → Reset password**, ensure the reset email includes a link using `{{ .ConfirmationURL }}`. The app requests the redirect URL `?auth=reset`, where users enter and confirm a new password. Supabase must allow the app's production and local URLs in **Authentication → URL Configuration**.
+8. Restart the Vite server and create an account with any valid email. Enter the unique code from the confirmation email, then enter the shared invite code to finish registration. Supabase/provider-level email sending quotas may still apply.
+9. The final statements in `supabase.sql` backfill profiles for existing auth users and promote `habibyesuf81@gmail.com` to admin. If that is not the account you want as admin, change the email in those statements before running the SQL. The admin must also complete email and invite verification before the admin panel is available.
 
 New accounts can use any valid email and must complete both verification steps. Other users can browse the public course catalog after verification; progress tracking remains locked until the admin grants access. Admins can grant or revoke access from the admin user table and always retain access. The database enforces these checks with row-level security, and only verified admins can change a learner's access flag. Invite attempts are limited to five per account per 15 minutes.
 

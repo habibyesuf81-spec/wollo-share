@@ -25,6 +25,12 @@ function getEmailRedirectUrl(email) {
   return redirectUrl.href;
 }
 
+function getPasswordRecoveryUrl() {
+  const redirectUrl = new URL(import.meta.env.BASE_URL, window.location.origin);
+  redirectUrl.searchParams.set("auth", "reset");
+  return redirectUrl.href;
+}
+
 export default function App() {
   const [session, setSession] = useState(null);
   const [sessionLoading, setSessionLoading] = useState(true);
@@ -32,7 +38,12 @@ export default function App() {
   const [profile, setProfile] = useState(null);
   const [completedVideos, setCompletedVideos] = useState(() => new Set());
   const [authMode, setAuthMode] = useState("signin");
-  const [showAuthPanel, setShowAuthPanel] = useState(false);
+  const [showAuthPanel, setShowAuthPanel] = useState(() => (
+    new URLSearchParams(window.location.search).get("auth") === "signin"
+  ));
+  const [passwordRecovery, setPasswordRecovery] = useState(() => (
+    new URLSearchParams(window.location.search).get("auth") === "reset"
+  ));
   const [authBusy, setAuthBusy] = useState(false);
   const [resendBusy, setResendBusy] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
@@ -456,6 +467,85 @@ export default function App() {
     }
   }
 
+  async function handlePasswordRecoveryRequest() {
+    if (!supabase) {
+      setAuthError(true);
+      setAuthMessage("Password reset by email is available for Supabase accounts. In local mode, create an account in this browser.");
+      return;
+    }
+
+    const email = authEmail.trim();
+    if (!email) {
+      setAuthError(true);
+      setAuthMessage("Enter your email address first.");
+      return;
+    }
+
+    setAuthBusy(true);
+    setAuthMessage("");
+    setAuthError(false);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: getPasswordRecoveryUrl()
+      });
+      if (error) throw error;
+      setAuthMessage("If an account exists for that email, Supabase sent a password reset link. Check your inbox and spam folder.");
+    } catch (error) {
+      setAuthError(true);
+      setAuthMessage(error.message || "Could not send the password reset email. Try again shortly.");
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function handlePasswordUpdate(event) {
+    event.preventDefault();
+    if (!supabase) return;
+
+    const formData = new FormData(event.currentTarget);
+    const password = String(formData.get("new-password"));
+    const confirmPassword = String(formData.get("confirm-password"));
+    if (password.length < 6) {
+      setAuthError(true);
+      setAuthMessage("Your password must be at least 6 characters.");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setAuthError(true);
+      setAuthMessage("The passwords do not match.");
+      return;
+    }
+
+    setAuthBusy(true);
+    setAuthMessage("");
+    setAuthError(false);
+    try {
+      const { error } = await supabase.auth.updateUser({ password });
+      if (error) throw error;
+
+      const { error: signOutError } = await supabase.auth.signOut();
+      if (signOutError) {
+        setAuthError(true);
+        setAuthMessage("Your password was changed, but sign-out failed. Reload this page, then sign in with your new password.");
+        return;
+      }
+
+      applySession(null);
+      setPasswordRecovery(false);
+      setAuthMode("signin");
+      setShowAuthPanel(true);
+      setAuthMessage("Password updated. Sign in with your new password.");
+      const signInUrl = new URL(import.meta.env.BASE_URL, window.location.origin);
+      signInUrl.searchParams.set("auth", "signin");
+      window.history.replaceState({}, "", signInUrl.href);
+    } catch (error) {
+      setAuthError(true);
+      setAuthMessage(error.message || "Could not update your password. Request a new reset link and try again.");
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
   async function handleInviteCodeSubmit(event) {
     event.preventDefault();
     if (!supabase || !userId) return;
@@ -714,6 +804,45 @@ export default function App() {
     supabase && session && profile && profile.invite_code_verified !== true
   );
 
+  if (passwordRecovery) {
+    return (
+      <main className="login-page">
+        <div className="login-topline">
+          <div className="brand"><span className="brand-mark" aria-hidden="true" />Evangadi Learning</div>
+          <button className="text-button" type="button" onClick={() => {
+            setPasswordRecovery(false);
+            setShowAuthPanel(true);
+            setAuthMode("signin");
+            const signInUrl = new URL(import.meta.env.BASE_URL, window.location.origin);
+            signInUrl.searchParams.set("auth", "signin");
+            window.history.replaceState({}, "", signInUrl.href);
+          }}>Back to sign in</button>
+        </div>
+        <div className="login-layout">
+          <section className="login-intro">
+            <div className="login-kicker">Evangadi Resources</div>
+            <h1>Choose a new password.</h1>
+            <p>Enter a new password for your account to finish resetting it.</p>
+            <div className="login-course-count"><strong>48</strong><span>courses, in your order</span></div>
+          </section>
+          <section className="login-card" aria-labelledby="password-reset-title">
+            <div className="resource-kind"><span className="kind-dot" aria-hidden="true" />Account recovery</div>
+            <h2 id="password-reset-title">Reset your password</h2>
+            <p className="auth-copy">Use at least 6 characters. After saving, sign in with your new password.</p>
+            <form className="auth-form" onSubmit={handlePasswordUpdate}>
+              <label>New password<input name="new-password" type="password" autoComplete="new-password" minLength="6" required /></label>
+              <label>Confirm new password<input name="confirm-password" type="password" autoComplete="new-password" minLength="6" required /></label>
+              <button className="primary-button login-submit" type="submit" disabled={authBusy}>
+                {authBusy ? "Please wait..." : "Update password"}
+              </button>
+              {authMessage && <p className={`message ${authError ? "error" : ""}`} role="status">{authMessage}</p>}
+            </form>
+          </section>
+        </div>
+      </main>
+    );
+  }
+
   if (verificationStage || needsInviteVerification) {
     const verifyEmail = verificationStage === "email" && !session;
     return (
@@ -796,6 +925,11 @@ export default function App() {
             <form className="auth-form" onSubmit={handleAuthSubmit}>
               <label>Email address<input name="email" type="email" autoComplete="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} required /></label>
               <label>Password<input name="password" type="password" autoComplete={authMode === "signup" ? "new-password" : "current-password"} minLength="6" required /></label>
+              {supabase && authMode === "signin" && (
+                <button className="text-button resend-button" type="button" onClick={handlePasswordRecoveryRequest} disabled={authBusy}>
+                  Forgot password?
+                </button>
+              )}
               <button className="primary-button login-submit" type="submit" disabled={authBusy}>
                 {authBusy ? "Please wait..." : authMode === "signup" ? "Create account" : "Sign in"}
               </button>
