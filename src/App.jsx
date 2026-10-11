@@ -13,6 +13,10 @@ const filters = [
   { id: "material", label: "Materials" }
 ];
 
+function getSiteUrl() {
+  return new URL(import.meta.env.BASE_URL, window.location.origin).href;
+}
+
 function getPasswordRecoveryUrl() {
   const redirectUrl = new URL(import.meta.env.BASE_URL, window.location.origin);
   redirectUrl.searchParams.set("auth", "reset");
@@ -377,13 +381,20 @@ export default function App() {
       }
 
       if (authMode === "signup") {
-        const { data, error } = await supabase.auth.signUp({ email, password });
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: { emailRedirectTo: getSiteUrl() }
+        });
         if (error) throw error;
         if (data.session) {
           applySession(data.session);
           void recordActivity("sign_in", null, data.session.user.id);
         } else {
-          setAuthMessage("Account created! You can now sign in with your email and password.");
+          setAuthError(false);
+          setAuthMessage(
+            `A confirmation email was sent to ${email}. Click the link in that email to finish signing up, then come back here and sign in.`
+          );
         }
       } else {
         const { data, error } = await supabase.auth.signInWithPassword({ email, password });
@@ -395,7 +406,7 @@ export default function App() {
       const message = error.message || "Unable to sign in. Try again.";
       setAuthError(true);
       setAuthMessage(/email not confirmed/i.test(message)
-        ? "This account still needs email confirmation in Supabase. Ask the project administrator to disable email confirmation to use admin-code-only signup."
+        ? `Your email isn't confirmed yet. Check ${authEmail || "your inbox"} for a confirmation email and click the link, then try signing in again.`
         : message);
     } finally {
       setAuthBusy(false);
