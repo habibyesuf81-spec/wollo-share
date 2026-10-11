@@ -177,7 +177,7 @@ export async function createAccount(emailInput, password) {
     passwordSalt: bytesToBase64(salt),
     passwordHash: bytesToBase64(passwordHash),
     role: isAdmin ? "admin" : "learner",
-    access_granted: isAdmin,
+    access_granted: true,
     created_at: new Date().toISOString()
   };
   database.users.push(user);

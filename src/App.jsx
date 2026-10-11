@@ -36,7 +36,6 @@ export default function App() {
   const [authEmail, setAuthEmail] = useState(() => (
     new URLSearchParams(window.location.search).get("email") || ""
   ));
-  const [inviteCode, setInviteCode] = useState("");
   const [authMessage, setAuthMessage] = useState("");
   const [authError, setAuthError] = useState(false);
   const [appMessage, setAppMessage] = useState("");
@@ -68,10 +67,8 @@ export default function App() {
   const userId = session?.user?.id;
   const isAdmin = profile?.id === userId &&
     profile?.role === "admin" &&
-    profile?.invite_code_verified === true &&
     session?.user?.email?.toLowerCase() === ADMIN_EMAIL;
-  const hasAppAccess = profile?.invite_code_verified === true &&
-    (isAdmin || profile?.access_granted === true);
+  const hasAppAccess = isAdmin || profile?.access_granted === true;
   const progressCount = completedVideos.size;
   const libraryResources = [
     ...resources,
@@ -230,8 +227,7 @@ export default function App() {
       if (!active) return;
       setProfile(profileResult.data);
 
-      if (profileResult.data.invite_code_verified !== true ||
-        (profileResult.data.role !== "admin" && !profileResult.data.access_granted)) {
+      if (profileResult.data.role !== "admin" && !profileResult.data.access_granted) {
         setCompletedVideos(new Set());
         return;
       }
@@ -385,8 +381,9 @@ export default function App() {
         if (error) throw error;
         if (data.session) {
           applySession(data.session);
+          void recordActivity("sign_in", null, data.session.user.id);
         } else {
-          setAuthMessage(`Your account was created. Sign in to enter the administrator access code. If Supabase asks for email confirmation, ask the project administrator to turn off Confirm email.`);
+          setAuthMessage("Account created! You can now sign in with your email and password.");
         }
       } else {
         const { data, error } = await supabase.auth.signInWithPassword({ email, password });
@@ -479,34 +476,6 @@ export default function App() {
     } catch (error) {
       setAuthError(true);
       setAuthMessage(error.message || "Could not update your password. Request a new reset link and try again.");
-    } finally {
-      setAuthBusy(false);
-    }
-  }
-
-  async function handleInviteCodeSubmit(event) {
-    event.preventDefault();
-    if (!supabase || !userId) return;
-
-    setAuthBusy(true);
-    setAuthMessage("");
-    setAuthError(false);
-    try {
-      const { data, error } = await supabase.rpc("verify_invite_code", {
-        submitted_code: inviteCode
-      });
-      if (error) throw error;
-      if (data !== true) throw new Error("That invite code is not correct.");
-
-      setProfile((current) => current ? { ...current, invite_code_verified: true } : current);
-      setInviteCode("");
-      setAuthMessage("");
-      const libraryUrl = new URL(import.meta.env.BASE_URL, window.location.origin);
-      window.history.replaceState({}, "", libraryUrl.href);
-      void recordActivity("sign_in", null, userId);
-    } catch (error) {
-      setAuthError(true);
-      setAuthMessage(error.message || "Could not verify the invite code.");
     } finally {
       setAuthBusy(false);
     }
@@ -707,10 +676,6 @@ export default function App() {
   const selectedCategory = categories.find((category) => category.id === categoryFilterId);
 
   const progressPercent = Math.round((progressCount / videos.length) * 100);
-  const needsInviteVerification = Boolean(
-    supabase && session && profile && profile.invite_code_verified !== true
-  );
-
   if (passwordRecovery) {
     return (
       <main className="login-page">
@@ -750,41 +715,6 @@ export default function App() {
     );
   }
 
-  if (needsInviteVerification) {
-    return (
-      <main className="login-page">
-        <div className="login-topline">
-          <div className="brand"><span className="brand-mark" aria-hidden="true" />Evangadi Learning</div>
-          {session
-            ? <button className="text-button" type="button" onClick={handleSignOut}>Sign out</button>
-            :             <button className="text-button" type="button" onClick={() => {
-              setShowAuthPanel(true);
-            }}>Back to sign in</button>}
-        </div>
-        <div className="login-layout">
-          <section className="login-intro">
-            <div className="login-kicker">Evangadi Resources</div>
-            <h1>Access for learners.</h1>
-            <p>Enter the access code provided by the administrator to finish setting up your account.</p>
-            <div className="login-course-count"><strong>{videos.length}</strong><span>courses, in your order</span></div>
-          </section>
-          <section className="login-card" aria-labelledby="verification-title">
-            <div className="resource-kind"><span className="kind-dot" aria-hidden="true" />Administrator access</div>
-            <h2 id="verification-title">Enter your access code</h2>
-            <p className="auth-copy">Signed in as {session?.user?.email}. Enter the code provided by the administrator.</p>
-            <form className="auth-form" onSubmit={handleInviteCodeSubmit}>
-              <label>Administrator access code<input name="invite-code" type="password" autoComplete="one-time-code" value={inviteCode} onChange={(event) => setInviteCode(event.target.value)} required /></label>
-              <button className="primary-button login-submit" type="submit" disabled={authBusy}>
-                {authBusy ? "Please wait..." : "Continue to resources"}
-              </button>
-              {authMessage && <p className={`message ${authError ? "error" : ""}`} role="status">{authMessage}</p>}
-            </form>
-          </section>
-        </div>
-      </main>
-    );
-  }
-
   if (showAuthPanel && !session) {
     return (
       <main className="login-page">
@@ -814,7 +744,7 @@ export default function App() {
                   ? `Your account is stored only in this browser. ${ADMIN_EMAIL} is the only local admin; other accounts are learners.`
                   : "Sign in to the account stored in this browser."
                 : authMode === "signup"
-                  ? "Create your learner account, then enter the administrator-provided access code to continue."
+                  ? "Create your account to save your video progress and pick up where you left off."
                   : "Enter your email and password to continue."}
             </p>
             <form className="auth-form" onSubmit={handleAuthSubmit}>
@@ -919,8 +849,8 @@ export default function App() {
           {session && accountLoading && <p className="message" role="status">Loading your progress...</p>}
           {session && !accountLoading && profile && !hasAppAccess && (
             <section className="access-notice" role="status">
-              <strong>Your account is awaiting approval.</strong>
-              <span>You can browse the courses now. Progress tracking will be available after an admin grants access.</span>
+              <strong>Your account is pending access.</strong>
+              <span>You can browse all courses now. Progress tracking will unlock once an admin approves your account.</span>
             </section>
           )}
           <section aria-label="Browse resources">

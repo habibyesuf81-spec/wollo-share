@@ -240,8 +240,8 @@ begin
     new.id,
     new.email,
     case when lower(new.email) = lower('habibyesuf81@gmail.com') then 'admin' else 'learner' end,
-    lower(new.email) = lower('habibyesuf81@gmail.com'),
-    false
+    true,
+    true
   );
   return new;
 end;
@@ -259,6 +259,10 @@ select id, email
 from auth.users
 on conflict (id) do update set email = excluded.email;
 
+-- Grant access to all existing users and promote admin
 update public.profiles
-set role = 'admin', access_granted = true
+set access_granted = true, invite_code_verified = true;
+
+update public.profiles
+set role = 'admin'
 where lower(email) = lower('habibyesuf81@gmail.com');
