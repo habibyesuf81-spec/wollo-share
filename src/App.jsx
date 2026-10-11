@@ -366,42 +366,28 @@ export default function App() {
     const email = String(formData.get("email")).trim();
     const password = String(formData.get("password"));
 
+    // Only the admin email is allowed to log in
+    if (email.toLowerCase() !== ADMIN_EMAIL) {
+      setAuthError(true);
+      setAuthMessage("Only the administrator account can sign in.");
+      setAuthBusy(false);
+      return;
+    }
+
     try {
       if (!supabase) {
-        const nextSession = authMode === "signup"
-          ? await localDatabase.createAccount(email, password)
-          : await localDatabase.signIn(email, password);
+        const nextSession = await localDatabase.signIn(email, password);
         applySession(nextSession);
-        setAppMessage(authMode === "signup"
-          ? "Local account created. Your data stays in this browser."
-          : "Signed in to your local account.");
+        setAppMessage("Signed in to your local account.");
         setAppError(false);
         await recordActivity("sign_in", null, nextSession.user.id);
         return;
       }
 
-      if (authMode === "signup") {
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: { emailRedirectTo: getSiteUrl() }
-        });
-        if (error) throw error;
-        if (data.session) {
-          applySession(data.session);
-          void recordActivity("sign_in", null, data.session.user.id);
-        } else {
-          setAuthError(false);
-          setAuthMessage(
-            `A confirmation email was sent to ${email}. Click the link in that email to finish signing up, then come back here and sign in.`
-          );
-        }
-      } else {
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
-        applySession(data.session);
-        void recordActivity("sign_in", null, data.session.user.id);
-      }
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      applySession(data.session);
+      void recordActivity("sign_in", null, data.session.user.id);
     } catch (error) {
       const message = error.message || "Unable to sign in. Try again.";
       setAuthError(true);
@@ -740,44 +726,25 @@ export default function App() {
         <div className="login-layout">
           <section className="login-intro">
             <div className="login-kicker">Evangadi Resources</div>
-            <h1>{authMode === "signup" ? "Start learning." : "Welcome back."}</h1>
-            <p>{authMode === "signup"
-              ? "Create your account, then use the access code shared by the administrator to join the learning community."
-              : "Sign in to continue your courses and keep your progress in sync."}</p>
+            <h1>Admin access.</h1>
+            <p>Sign in with the administrator account to manage the course library and learners.</p>
             <div className="login-course-count"><strong>{videos.length}</strong><span>courses, in your order</span></div>
           </section>
           <section className="login-card" aria-labelledby="auth-title">
-            <div className="resource-kind"><span className="kind-dot" aria-hidden="true" />Learner account</div>
-            <h2 id="auth-title">{authMode === "signup" ? "Create your account" : "Sign in"}</h2>
-            <p className="auth-copy">
-              {!supabase
-                ? authMode === "signup"
-                  ? `Your account is stored only in this browser. ${ADMIN_EMAIL} is the only local admin; other accounts are learners.`
-                  : "Sign in to the account stored in this browser."
-                : authMode === "signup"
-                  ? "Create your account to save your video progress and pick up where you left off."
-                  : "Enter your email and password to continue."}
-            </p>
+            <div className="resource-kind"><span className="kind-dot" aria-hidden="true" />Administrator</div>
+            <h2 id="auth-title">Sign in</h2>
+            <p className="auth-copy">Enter the administrator email and password to continue.</p>
             <form className="auth-form" onSubmit={handleAuthSubmit}>
               <label>Email address<input name="email" type="email" autoComplete="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} required /></label>
-              <label>Password<input name="password" type="password" autoComplete={authMode === "signup" ? "new-password" : "current-password"} minLength="6" required /></label>
-              {supabase && authMode === "signin" && (
+              <label>Password<input name="password" type="password" autoComplete="current-password" minLength="6" required /></label>
+              {supabase && (
                 <button className="text-button resend-button" type="button" onClick={handlePasswordRecoveryRequest} disabled={authBusy}>
                   Forgot password?
                 </button>
               )}
               <button className="primary-button login-submit" type="submit" disabled={authBusy}>
-                {authBusy ? "Please wait..." : authMode === "signup" ? "Create account" : "Sign in"}
+                {authBusy ? "Please wait..." : "Sign in"}
               </button>
-              <div className="login-secondary-actions">
-                <button className="text-button" type="button" onClick={() => {
-                  setAuthMode((current) => current === "signin" ? "signup" : "signin");
-                  setAuthMessage("");
-                  setAuthError(false);
-                }}>
-                  {authMode === "signup" ? "Back to sign in" : "Create account"}
-                </button>
-              </div>
               {authMessage && <p className={`message ${authError ? "error" : ""}`} role="status">{authMessage}</p>}
             </form>
           </section>
