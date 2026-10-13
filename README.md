@@ -43,10 +43,11 @@ The script displays the number of accounts and requires typing `DELETE ALL <proj
 
 1. Create a Supabase project.
 2. In the Supabase SQL Editor, run the contents of `supabase.sql`.
-3. Add the local Vite URL shown in the previous section and the production app URL (including `/wolloshare/` for GitHub Pages) to Authentication URL settings as allowed redirect URLs.
+3. Under **Authentication → Sign In / Providers → Email**, turn off **Confirm email** so new users can sign in and enter the administrator's access code without an email verification code. The shared administrator access code is the signup gate; only give it directly to approved learners.
+4. Add the local Vite URL shown in the previous section and the production app URL (including `/wolloshare/` for GitHub Pages) to Authentication URL settings as allowed redirect URLs.
    For a Vercel deployment, set the production Site URL to `https://wolloshare.vercel.app` and allow `https://wolloshare.vercel.app/**` as a redirect URL; keep `http://localhost:5173/**` allowed for local testing.
-4. Copy `.env.example` to `.env.local`, set `VITE_DATA_MODE=supabase`, and set the Vite and server URL/publishable-key variables to your project URL and publishable key. Add `SUPABASE_SECRET_KEY` only to the ignored local env file if a trusted server route needs admin access; never prefix it with `VITE_` or put it in client code.
-5. Set the shared invite code privately in the Supabase SQL Editor, replacing the placeholder with the code you want. Do not add the real code to a checked-in file:
+5. Copy `.env.example` to `.env.local`, set `VITE_DATA_MODE=supabase`, and set the Vite and server URL/publishable-key variables to your project URL and publishable key. Add `SUPABASE_SECRET_KEY` only to the ignored local env file if a trusted server route needs admin access; never prefix it with `VITE_` or put it in client code.
+6. Set the administrator access code privately in the Supabase SQL Editor, replacing the placeholder with the code you want. Give the code only to approved users, and do not add it to a checked-in file:
 
    ```sql
    insert into private.app_invite_config (singleton, invite_code)
@@ -54,21 +55,13 @@ The script displays the number of accounts and requires typing `DELETE ALL <proj
    on conflict (singleton) do update set invite_code = excluded.invite_code;
    ```
 
-6. Configure a custom SMTP provider under **Authentication → SMTP Settings**. Supabase's built-in mailer is rate-limited and is not intended for unrestricted delivery. Then, under **Authentication → Email Templates → Confirm signup**, use a template that includes the OTP and links back to the app's verification page. For example:
+7. Configure a custom SMTP provider under **Authentication → SMTP Settings** if you want users to receive password reset emails. Under **Authentication → Email Templates → Reset password**, ensure the reset email includes a link using `{{ .ConfirmationURL }}`. Supabase's built-in mailer is rate-limited and is not intended for unrestricted delivery.
 
-   ```html
-   <h2>Confirm your email</h2>
-   <p>Your email verification code is: <strong>{{ .Token }}</strong></p>
-   <p><a href="{{ .RedirectTo }}">Open the verification page to enter your code</a></p>
-   <p>After verification, <a href="https://wolloshare.vercel.app/?auth=signin">go to the sign-in page</a>.</p>
-   ```
+   The app requests the redirect URL `?auth=reset`, where users enter and confirm a new password.
+8. Restart the Vite server and create an account with any valid email. Sign in, then enter the administrator-provided access code to finish setup.
+9. The final statements in `supabase.sql` backfill profiles for existing auth users and promote `habibyesuf81@gmail.com` to admin. If that is not the account you want as admin, change the email in those statements before running the SQL. The admin must also enter the administrator access code before the admin panel is available.
 
-   Set the subject to something like **Your Evangadi verification code**. The app supplies a redirect URL ending in `?verify=1&email=...`; `{{ .RedirectTo }}` uses that URL, while `{{ .Token }}` supplies a unique, single-use code for that signup. The sign-in link opens the production login form. The dashboard may require SMTP before enabling template edits.
-7. Under **Authentication → Email Templates → Reset password**, ensure the reset email includes a link using `{{ .ConfirmationURL }}`. The app requests the redirect URL `?auth=reset`, where users enter and confirm a new password. Supabase must allow the app's production and local URLs in **Authentication → URL Configuration**.
-8. Restart the Vite server and create an account with any valid email. Enter the unique code from the confirmation email, then enter the shared invite code to finish registration. Supabase/provider-level email sending quotas may still apply.
-9. The final statements in `supabase.sql` backfill profiles for existing auth users and promote `habibyesuf81@gmail.com` to admin. If that is not the account you want as admin, change the email in those statements before running the SQL. The admin must also complete email and invite verification before the admin panel is available.
-
-New accounts can use any valid email and must complete both verification steps. Other users can browse the public course catalog after verification; progress tracking remains locked until the admin grants access. Admins can grant or revoke access from the admin user table and always retain access. The database enforces these checks with row-level security, and only verified admins can change a learner's access flag. Invite attempts are limited to five per account per 15 minutes.
+New accounts can use any valid email and must sign in with the administrator-provided access code. Other users can browse the public course catalog after code verification; progress tracking remains locked until the admin grants access. Admins can grant or revoke access from the admin user table and always retain access. The database enforces these checks with row-level security, and only verified admins can change a learner's access flag. Access code attempts are limited to five per account per 15 minutes.
 
 The admin dashboard also lists completed-video counts, last-active timestamps, and the latest 50 sign-in, resource-open, and completion events. Learners can only read and change their own progress and insert activity for themselves; only admins can read everyone’s activity. Re-run the latest `supabase.sql` whenever its schema changes so the approval column, activity table, and row-level security policies exist.
 
